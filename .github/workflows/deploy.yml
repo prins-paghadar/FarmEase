@@ -9,24 +9,29 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # ✅ 1. Checkout Code
       - name: Checkout Code
         uses: actions/checkout@v3
 
+      # ✅ 2. Docker Login
       - name: Docker Login
         run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
 
+      # ✅ 3. Build Backend Image
       - name: Build Backend
-        run: docker build -t ${{ secrets.DOCKER_USERNAME }}/backend ./backend
+        run: docker build -t ${{ secrets.DOCKER_USERNAME }}/backend:latest ./backend
 
+      # ✅ 4. Build Frontend Image
       - name: Build Frontend
-        run: docker build -t ${{ secrets.DOCKER_USERNAME }}/frontend ./frontend
+        run: docker build -t ${{ secrets.DOCKER_USERNAME }}/frontend:latest ./frontend
 
+      # ✅ 5. Push Images to Docker Hub
       - name: Push Images
         run: |
-          docker push ${{ secrets.DOCKER_USERNAME }}/backend
-          docker push ${{ secrets.DOCKER_USERNAME }}/frontend
+          docker push ${{ secrets.DOCKER_USERNAME }}/backend:latest
+          docker push ${{ secrets.DOCKER_USERNAME }}/frontend:latest
 
-      # ✅ ADD THIS (AWS LOGIN)
+      # ✅ 6. Configure AWS Credentials
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
@@ -34,19 +39,24 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ap-south-1
 
-      # ✅ ADD THIS (CONNECT TO EKS)
+      # ✅ 7. Connect to EKS Cluster
       - name: Update kubeconfig
         run: aws eks update-kubeconfig --region ap-south-1 --name farmease
 
-      # ✅ OPTIONAL (install kubectl just in case)
-      - name: Install kubectl
-        run: |
-          curl -o kubectl https://amazon-eks.s3.us-west-2.amazonaws.com/1.30.0/2024-01-04/bin/linux/amd64/kubectl
-          chmod +x kubectl
-          sudo mv kubectl /usr/local/bin/
+      # ✅ 8. Install kubectl (FIXED)
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.30.0'
 
-      # ✅ DEPLOY TO K8S
+      # ✅ 9. Deploy to Kubernetes
       - name: Update Kubernetes Deployment
         run: |
-          kubectl set image deployment/backend backend=${{ secrets.DOCKER_USERNAME }}/backend
-          kubectl set image deployment/frontend frontend=${{ secrets.DOCKER_USERNAME }}/frontend
+          kubectl set image deployment/backend backend=${{ secrets.DOCKER_USERNAME }}/backend:latest
+          kubectl set image deployment/frontend frontend=${{ secrets.DOCKER_USERNAME }}/frontend:latest
+
+      # ✅ 10. Verify rollout (VERY IMPORTANT)
+      - name: Verify Deployment
+        run: |
+          kubectl rollout status deployment/backend
+          kubectl rollout status deployment/frontend
