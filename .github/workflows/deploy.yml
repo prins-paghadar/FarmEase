@@ -26,7 +26,26 @@ jobs:
           docker push ${{ secrets.DOCKER_USERNAME }}/backend
           docker push ${{ secrets.DOCKER_USERNAME }}/frontend
 
-      # 👉 NEW STEP (VERY IMPORTANT)
+      # ✅ ADD THIS (AWS LOGIN)
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-south-1
+
+      # ✅ ADD THIS (CONNECT TO EKS)
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --region ap-south-1 --name farmease
+
+      # ✅ OPTIONAL (install kubectl just in case)
+      - name: Install kubectl
+        run: |
+          curl -o kubectl https://amazon-eks.s3.us-west-2.amazonaws.com/1.30.0/2024-01-04/bin/linux/amd64/kubectl
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/
+
+      # ✅ DEPLOY TO K8S
       - name: Update Kubernetes Deployment
         run: |
           kubectl set image deployment/backend backend=${{ secrets.DOCKER_USERNAME }}/backend

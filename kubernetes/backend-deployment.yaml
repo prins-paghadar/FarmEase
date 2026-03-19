@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
         - name: backend
-          image: yourdockerhub/backend
+          image: prins20/backend:latest
           ports:
             - containerPort: 8001
           resources:
