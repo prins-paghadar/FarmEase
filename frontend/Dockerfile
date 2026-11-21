@@ -5,6 +5,9 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install
 
+ARG VITE_BACKEND_API
+ENV VITE_BACKEND_API=${VITE_BACKEND_API}
+
 COPY . .
 
 RUN npm run build
