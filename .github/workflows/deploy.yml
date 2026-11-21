@@ -33,9 +33,18 @@ jobs:
           version: 'v1.30.0'
 
       - name: Configure kubeconfig
+        env:
+          KUBECONFIG_B64: ${{ secrets.KUBECONFIG }}
         run: |
+          set -euo pipefail
+          if [ -z "$KUBECONFIG_B64" ]; then
+            echo "::error::GitHub Actions secret KUBECONFIG is empty or not configured."
+            exit 1
+          fi
           mkdir -p $HOME/.kube
-          echo "${{ secrets.KUBECONFIG }}" | base64 --decode > $HOME/.kube/config
+          printf '%s' "$KUBECONFIG_B64" | base64 --decode > $HOME/.kube/config
+          chmod 600 $HOME/.kube/config
+          kubectl config current-context
 
       - name: Apply Kubernetes Manifests
         run: |
