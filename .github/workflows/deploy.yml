@@ -6,7 +6,10 @@ on:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, windows]
+    defaults:
+      run:
+        shell: pwsh
 
     steps:
     
@@ -14,18 +17,31 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Docker Login
-        run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+        run: |
+          $env:DOCKER_PASSWORD | docker login -u $env:DOCKER_USERNAME --password-stdin
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build Backend
-        run: docker build -t ${{ secrets.DOCKER_USERNAME }}/backend:latest ./backend
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+        run: docker build -t "$($env:DOCKER_USERNAME)/backend:latest" ./backend
 
       - name: Build Frontend
-        run: docker build -t ${{ secrets.DOCKER_USERNAME }}/frontend:latest ./frontend
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+        run: docker build -t "$($env:DOCKER_USERNAME)/frontend:latest" ./frontend
 
       - name: Push Images
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
         run: |
-          docker push ${{ secrets.DOCKER_USERNAME }}/backend:latest
-          docker push ${{ secrets.DOCKER_USERNAME }}/frontend:latest
+          docker push "$($env:DOCKER_USERNAME)/backend:latest"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          docker push "$($env:DOCKER_USERNAME)/frontend:latest"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Setup kubectl
         uses: azure/setup-kubectl@v3
@@ -36,26 +52,23 @@ jobs:
         env:
           KUBECONFIG_CONTENT: ${{ secrets.KUBECONFIG }}
         run: |
-          set -euo pipefail
-          if [ -z "$KUBECONFIG_CONTENT" ]; then
-            echo "::error::GitHub Actions secret KUBECONFIG is empty or not configured."
-            exit 1
-          fi
-          mkdir -p "$HOME/.kube"
-          if printf '%s' "$KUBECONFIG_CONTENT" | grep -E '^[[:space:]]*(apiVersion:[[:space:]]*v1|kind:[[:space:]]*Config)' >/dev/null; then
-            printf '%s' "$KUBECONFIG_CONTENT" > "$HOME/.kube/config"
-          elif ! printf '%s' "$KUBECONFIG_CONTENT" | base64 --decode > "$HOME/.kube/config"; then
-            echo "::error::KUBECONFIG must contain kubeconfig YAML or a valid Base64-encoded kubeconfig."
-            exit 1
-          fi
-          chmod 600 "$HOME/.kube/config"
-          server="$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
-          case "$server" in
-            http://localhost*|https://localhost*|http://127.*|https://127.*|http://\[::1\]*|https://\[::1\]*)
-              echo "::error::KUBECONFIG points to a loopback API server unavailable from GitHub-hosted runners."
-              exit 1
-              ;;
-          esac
+          if ([string]::IsNullOrWhiteSpace($env:KUBECONFIG_CONTENT)) {
+            throw "GitHub Actions secret KUBECONFIG is empty or not configured."
+          }
+          $configPath = Join-Path $HOME ".kube\config"
+          New-Item -ItemType Directory -Force -Path (Split-Path $configPath) | Out-Null
+          if ($env:KUBECONFIG_CONTENT -match '^\s*(apiVersion:\s*v1|kind:\s*Config)') {
+            [IO.File]::WriteAllText($configPath, $env:KUBECONFIG_CONTENT)
+          } else {
+            try {
+              $configBytes = [Convert]::FromBase64String($env:KUBECONFIG_CONTENT)
+            } catch {
+              throw "KUBECONFIG must contain kubeconfig YAML or a valid Base64-encoded kubeconfig."
+            }
+            [IO.File]::WriteAllBytes($configPath, $configBytes)
+          }
+          kubectl config current-context
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Verify cluster access
         run: kubectl cluster-info
@@ -63,18 +76,30 @@ jobs:
       - name: Apply Kubernetes Manifests
         run: |
           kubectl apply -f kubernetes/secret.yaml
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           kubectl apply -f kubernetes/backend-deployment.yaml
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           kubectl apply -f kubernetes/backend-service.yaml
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           kubectl apply -f kubernetes/frontend-deployment.yaml
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           kubectl apply -f kubernetes/frontend-service.yaml
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           kubectl apply -f kubernetes/ingress.yaml
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Update Kubernetes Deployment
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
         run: |
-          kubectl set image deployment/backend backend=${{ secrets.DOCKER_USERNAME }}/backend:latest
-          kubectl set image deployment/frontend frontend=${{ secrets.DOCKER_USERNAME }}/frontend:latest
+          kubectl set image deployment/backend "backend=$($env:DOCKER_USERNAME)/backend:latest"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          kubectl set image deployment/frontend "frontend=$($env:DOCKER_USERNAME)/frontend:latest"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Verify Deployment
         run: |
           kubectl rollout status deployment/backend
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           kubectl rollout status deployment/frontend
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
