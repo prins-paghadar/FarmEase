@@ -34,15 +34,20 @@ jobs:
 
       - name: Configure kubeconfig
         env:
-          KUBECONFIG_B64: ${{ secrets.KUBECONFIG }}
+          KUBECONFIG_CONTENT: ${{ secrets.KUBECONFIG }}
         run: |
           set -euo pipefail
-          if [ -z "$KUBECONFIG_B64" ]; then
+          if [ -z "$KUBECONFIG_CONTENT" ]; then
             echo "::error::GitHub Actions secret KUBECONFIG is empty or not configured."
             exit 1
           fi
           mkdir -p $HOME/.kube
-          printf '%s' "$KUBECONFIG_B64" | base64 --decode > $HOME/.kube/config
+          if printf '%s' "$KUBECONFIG_CONTENT" | grep -E '^[[:space:]]*(apiVersion:[[:space:]]*v1|kind:[[:space:]]*Config)' >/dev/null; then
+            printf '%s' "$KUBECONFIG_CONTENT" > $HOME/.kube/config
+          elif ! printf '%s' "$KUBECONFIG_CONTENT" | base64 --decode > $HOME/.kube/config; then
+            echo "::error::KUBECONFIG must contain kubeconfig YAML or a valid Base64-encoded kubeconfig."
+            exit 1
+          fi
           chmod 600 $HOME/.kube/config
           kubectl config current-context
 
